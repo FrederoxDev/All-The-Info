@@ -17,6 +17,7 @@
 #include <modules/Profiler.hpp>
 #include <modules/EntityInfo.hpp>
 #include <minecraft/src/common/world/level/BlockSource.hpp>
+#include <amethyst/runtime/events/InputEvents.hpp>
 
 extern mce::TextureGroup* textureGroup;
 
@@ -80,26 +81,19 @@ BedrockTexture* uploadTexture(mce::TextureGroup* group, ResourceLocation* resour
 	return _uploadTexture.call<BedrockTexture*>(group, resource, texture, debugName);
 }
 
-SafetyHookInline _feed;
-
-void feed(MouseDevice* mouse, char actionButtonId, char buttonData, short x, short y, short dx, short dy, bool forceMotionlessPointer) {
+void MouseInput(MouseInputEvent& event) {
 	ImGuiIO& io = ImGui::GetIO();
-	io.AddMousePosEvent(x, y);
+	io.AddMousePosEvent(event.x, event.y);
 
-	if (actionButtonId == 4) {
-		float normalizedScroll = buttonData / 120.0f;
-		//io.AddMouseWheelEvent(0.0f, normalizedScroll);
+	if (event.mActionButtonId == 4) {
+		float normalizedScroll = event.mButtonData / 120.0f;
 		io.MouseWheel = normalizedScroll;
 	}
-	else if (actionButtonId != 0) {
-		io.AddMouseButtonEvent(actionButtonId - 1, buttonData == 1);
+	else if (event.mActionButtonId != 0) {
+		io.AddMouseButtonEvent(event.mActionButtonId - 1, event.mButtonData == 1);
 	}
 
-	// ImGui wants the mouse...
-	if (io.WantCaptureMouse) return;
-
-	// Pass mouse input back into the underlying game.
-	_feed.thiscall(mouse, actionButtonId, buttonData, x, y, dx, dy, forceMotionlessPointer);
+	if (io.WantCaptureMouse) event.Cancel();
 }
 
 SafetyHookInline _unloadAllTextures;
@@ -117,16 +111,16 @@ ModFunction void Initialize(AmethystContext& ctx)
 	ImGui::CreateContext();
 	ImPlot::CreateContext();
 
+	ctx.mFeatures->enableInputSystem = true;
+
 	auto& events = Amethyst::GetEventBus();
 	events.AddListener<AfterRenderUIEvent>(&AfterRenderUI);
+	events.AddListener<MouseInputEvent>(&MouseInput);
 
 	auto& hooks = Amethyst::GetHookManager();
 
 	hooks.RegisterFunction<&uploadTexture>(SigScan("40 55 53 56 57 41 54 41 56 41 57 48 8D 6C 24 ? 48 81 EC ? ? ? ? 48 8B 05 ? ? ? ? 48 33 C4 48 89 45 ? 49 8B F9 4D 8B F8 4C 8B F2 48 8B F1"));
 	hooks.CreateHook<&uploadTexture>(_uploadTexture, &uploadTexture);
-
-	hooks.RegisterFunction<&MouseDevice::feed>("48 8B C4 48 89 58 ? 48 89 68 ? 48 89 70 ? 57 41 54 41 55 41 56 41 57 48 83 EC ? 44 0F B7 BC 24");
-	hooks.CreateHook<&MouseDevice::feed>(_feed, &feed);
 
 	hooks.RegisterFunction<&mce::TextureGroup::unloadAllTextures>("48 89 5C 24 ? 57 48 83 EC ? 48 8B 99 ? ? ? ? 48 8B F9 48 8B 1B 80 7B ? ? 75 ? 0F 1F 00 48 8D 53");
 	hooks.CreateHook<&mce::TextureGroup::unloadAllTextures>(_unloadAllTextures, &unloadAllTextures);
